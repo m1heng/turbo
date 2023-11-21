@@ -263,7 +263,37 @@ function asyncModule(module, body, hasAwait) {
         queue.resolved = false;
     }
 }
+/**
+ * A pseudo, `fake` URL object to resolve to the its relative path.
+ * When urlrewritebehavior is set to relative, calls to the `new URL()` will construct url without base using this
+ * runtime function to generate context-agnostic urls between different rendering context, i.e ssr / client to avoid
+ * hydration mismatch.
+ *
+ * This is largely based on the webpack's existing implementation at
+ * https://github.com/webpack/webpack/blob/87660921808566ef3b8796f8df61bd79fc026108/lib/runtime/RelativeUrlRuntimeModule.js
+ */ var relativeURL = function(inputUrl) {
+    const realUrl = new URL(inputUrl, "x:/");
+    const values = {};
+    for(var key in realUrl)values[key] = realUrl[key];
+    values.href = inputUrl;
+    values.pathname = inputUrl.replace(/[?#].*/, "");
+    values.origin = values.protocol = "";
+    values.toString = values.toJSON = (..._args)=>inputUrl;
+    for(var key in values)Object.defineProperty(this, key, {
+        enumerable: true,
+        configurable: true,
+        value: values[key]
+    });
+};
+relativeURL.prototype = URL.prototype;
 /// <reference path="../shared/runtime-utils.ts" />
+const path = require("path");
+const relativePathToRuntimeRoot = path.relative(RUNTIME_PUBLIC_PATH, ".");
+// Compute the relative path to the `distDir`.
+const relativePathToDistRoot = path.relative(path.join(OUTPUT_ROOT, RUNTIME_PUBLIC_PATH), ".");
+const RUNTIME_ROOT = path.resolve(__filename, relativePathToRuntimeRoot);
+// Compute the absolute path to the root, by stripping distDir from the absolute path to this file.
+const ABSOLUTE_ROOT = path.resolve(__filename, relativePathToDistRoot);
 function commonJsRequireContext(entry, sourceModule) {
     return entry.external ? externalRequire(entry.id(), false) : commonJsRequire(sourceModule, entry.id());
 }
@@ -322,28 +352,6 @@ async function instantiateWebAssemblyFromPath(path, importsObj) {
     const { instance } = await WebAssembly.instantiateStreaming(response, importsObj);
     return instance.exports;
 }
-/// <reference path="../shared/runtime-utils.ts" />
-/// <reference path="../shared-node/node-utils.ts" />
-let SourceType;
-(function(SourceType) {
-    /**
-   * The module was instantiated because it was included in an evaluated chunk's
-   * runtime.
-   */ SourceType[SourceType["Runtime"] = 0] = "Runtime";
-    /**
-   * The module was instantiated because a parent module imported it.
-   */ SourceType[SourceType["Parent"] = 1] = "Parent";
-})(SourceType || (SourceType = {}));
-const path = require("path");
-const url = require('url');
-const relativePathToRuntimeRoot = path.relative(RUNTIME_PUBLIC_PATH, ".");
-// Compute the relative path to the `distDir`.
-const relativePathToDistRoot = path.relative(path.join(OUTPUT_ROOT, RUNTIME_PUBLIC_PATH), ".");
-const RUNTIME_ROOT = path.resolve(__filename, relativePathToRuntimeRoot);
-// Compute the absolute path to the root, by stripping distDir from the absolute path to this file.
-const ABSOLUTE_ROOT = path.resolve(__filename, relativePathToDistRoot);
-const moduleFactories = Object.create(null);
-const moduleCache = Object.create(null);
 /**
  * Returns an absolute path to the given module path.
  * Module path should be relative, either path to a file or a directory.
@@ -359,30 +367,21 @@ const moduleCache = Object.create(null);
     }
     return ABSOLUTE_ROOT;
 }
-/**
- * A pseudo, `fake` URL object to resolve to the its relative path.
- * When urlrewritebehavior is set to relative, calls to the `new URL()` will construct url without base using this
- * runtime function to generate context-agnostic urls between different rendering context, i.e ssr / client to avoid
- * hydration mismatch.
- *
- * This is largely based on the webpack's existing implementation at
- * https://github.com/webpack/webpack/blob/87660921808566ef3b8796f8df61bd79fc026108/lib/runtime/RelativeUrlRuntimeModule.js
- */ var relativeURL = function(inputUrl) {
-    const outputUrl = inputUrl;
-    const realUrl = new URL(outputUrl, "x:/");
-    const values = {};
-    for(var key in realUrl)values[key] = realUrl[key];
-    values.href = outputUrl;
-    values.pathname = outputUrl.replace(/[?#].*/, "");
-    values.origin = values.protocol = "";
-    values.toString = values.toJSON = (..._args)=>outputUrl;
-    for(var key in values)Object.defineProperty(this, key, {
-        enumerable: true,
-        configurable: true,
-        value: values[key]
-    });
-};
-relativeURL.prototype = URL.prototype;
+/// <reference path="../shared/runtime-utils.ts" />
+/// <reference path="../shared-node/node-utils.ts" />
+let SourceType;
+(function(SourceType) {
+    /**
+   * The module was instantiated because it was included in an evaluated chunk's
+   * runtime.
+   */ SourceType[SourceType["Runtime"] = 0] = "Runtime";
+    /**
+   * The module was instantiated because a parent module imported it.
+   */ SourceType[SourceType["Parent"] = 1] = "Parent";
+})(SourceType || (SourceType = {}));
+const url = require('url');
+const moduleFactories = Object.create(null);
+const moduleCache = Object.create(null);
 /**
  * Returns an absolute path to the given module's id.
  */ function createResolvePathFromModule(resolver) {
